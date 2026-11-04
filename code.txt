@@ -1,0 +1,71 @@
+DROP TABLE IF EXISTS test2 CASCADE;
+DROP TABLE IF EXISTS test CASCADE;
+DROP TABLE IF EXISTS spec CASCADE;
+DROP FUNCTION IF EXISTS get_next_id(TEXT, TEXT);
+
+CREATE TABLE spec (
+    id INTEGER PRIMARY KEY,
+    table_name TEXT NOT NULL,
+    column_name TEXT NOT NULL,
+    current_max_value INTEGER NOT NULL
+);
+
+INSERT INTO spec (id, table_name, column_name, current_max_value)
+VALUES (1, 'spec', 'id', 1);
+
+CREATE OR REPLACE FUNCTION get_next_id(p_table_name TEXT, p_column_name TEXT)
+RETURNS INTEGER AS $$
+DECLARE
+    v_current_max INTEGER;
+    v_next_val INTEGER;
+    v_new_id INTEGER;
+BEGIN
+    SELECT current_max_value INTO v_current_max
+    FROM spec
+    WHERE table_name = p_table_name AND column_name = p_column_name;
+
+    IF FOUND THEN
+        v_next_val := v_current_max + 1;
+        UPDATE spec
+        SET current_max_value = v_next_val
+        WHERE table_name = p_table_name AND column_name = p_column_name;
+        RETURN v_next_val;
+    ELSE
+        EXECUTE format('SELECT COALESCE(MAX(%I), 0) + 1 FROM %I', p_column_name, p_table_name) INTO v_next_val;
+        v_new_id := get_next_id('spec', 'id');
+        INSERT INTO spec (id, table_name, column_name, current_max_value)
+        VALUES (v_new_id, p_table_name, p_column_name, v_next_val);
+        RETURN v_next_val;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT get_next_id('spec', 'id');
+SELECT * FROM spec;
+SELECT get_next_id('spec', 'id');
+SELECT * FROM spec;
+
+CREATE TABLE test (id INTEGER);
+INSERT INTO test (id) VALUES (10);
+SELECT get_next_id('test', 'id');
+SELECT * FROM spec;
+SELECT get_next_id('test', 'id');
+SELECT * FROM spec;
+
+CREATE TABLE test2 (num_value1 INTEGER, num_value2 INTEGER);
+SELECT get_next_id('test2', 'num_value1');
+SELECT * FROM spec;
+SELECT get_next_id('test2', 'num_value1');
+SELECT * FROM spec;
+
+INSERT INTO test2 (num_value1, num_value2) VALUES (2, 13);
+SELECT get_next_id('test2', 'num_value2');
+SELECT * FROM spec;
+
+SELECT get_next_id('test2', 'num_value1') FROM generate_series(1, 5);
+SELECT * FROM spec;
+
+DROP FUNCTION get_next_id(TEXT, TEXT);
+DROP TABLE test2;
+DROP TABLE test;
+DROP TABLE spec;
